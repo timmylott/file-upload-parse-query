@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Upload File</title>
+</head>
+<body>
+    <h2>Upload CSV, Excel, or PDF</h2>
+
+    {% if response %}
+        <p><strong>Upload Result:</strong></p>
+        <pre>{{ response | tojson(indent=2) }}</pre>
+        <hr>
+    {% endif %}
+
+    <form action="/upload/" method="post" enctype="multipart/form-data">
+        <input type="file" name="file" required>
+        <br><br>
+        <button type="submit">Upload</button>
+    </form>
+</body>
+</html>
