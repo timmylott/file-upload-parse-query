@@ -5,8 +5,9 @@ import boto3
 from botocore.client import Config
 import os
 import re
-import json
 from datetime import datetime
+import redis
+from rq import Queue, Retry
 
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
@@ -19,8 +20,14 @@ MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "admin")
 MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "password")
 MINIO_BUCKET = os.getenv("MINIO_BUCKET", "uploads")
 
-TRIGGER_DIR = "/shared/triggers"
-os.makedirs(TRIGGER_DIR, exist_ok=True)
+REDIS_HOST = os.getenv("REDIS_HOST", "redis")
+REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+
+# ----------------------------
+# Redis Queue setup
+# ----------------------------
+r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT)
+q = Queue("file_tasks", connection=r)
 
 # ----------------------------
 # MinIO client setup
@@ -48,8 +55,8 @@ def sanitize_filename(filename: str) -> str:
     name, ext = os.path.splitext(filename)
     name = name.lower()
     name = re.sub(r"[^a-z0-9_]", "_", name)
-    name = re.sub(r'_+', '_', name)         # collapse multiple underscores
-    name = name.strip('_')                  # remove leading/trailing underscores
+    name = re.sub(r"_+", "_", name)  # collapse multiple underscores
+    name = name.strip("_")  # remove leading/trailing underscores
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     return f"{name}_{timestamp}{ext}"
 
@@ -66,7 +73,7 @@ async def upload_form(request: Request):
 
 @app.post("/upload/", response_class=HTMLResponse)
 async def upload_file(request: Request, file: UploadFile = File(...)):
-    """Upload file to MinIO and create a Spark trigger JSON."""
+    """Upload file to MinIO and enqueue processing job in Redis Queue."""
     try:
         # Read uploaded content
         contents = await file.read()
@@ -79,23 +86,19 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
         # Derive Iceberg table name from filename (without extension)
         table_name = os.path.splitext(sanitized_name)[0]
 
-        # Create trigger JSON
-        trigger_data = {
-            "file_path": f"s3a://{MINIO_BUCKET}/{sanitized_name}",
-            "table_name": table_name
-        }
+        # Construct job parameters
+        file_path = f"s3a://{MINIO_BUCKET}/{sanitized_name}"
 
-        trigger_file = os.path.join(TRIGGER_DIR, f"{table_name}.json")
-        with open(trigger_file, "w") as f:
-            json.dump(trigger_data, f)
-
-        print(f"Trigger created: {trigger_file}")
+        # Enqueue job in Redis Queue using string path
+        # "tasks.process_file" should exist in the worker container
+        job = q.enqueue("tasks.process_file", file_path, table_name, retry=Retry(max=3))
+        print(f"Job enqueued: {job.id}")
 
         response = {
             "status": "success",
             "uploaded_file": sanitized_name,
-            "trigger_file": f"{table_name}.json",
-            "message": "File uploaded and trigger created for Spark loader."
+            "job_id": job.id,
+            "message": "File uploaded and queued for Iceberg ingestion."
         }
 
     except Exception as e:

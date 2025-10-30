@@ -17,6 +17,9 @@
 # specific language governing permissions and limitations
 # under the License.
 
+# Start RQ worker in background
+/home/iceberg/app/start_worker.sh &
+
 start-master.sh -p 7077
 start-worker.sh spark://spark-iceberg:7077
 

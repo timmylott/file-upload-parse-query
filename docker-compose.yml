@@ -56,16 +56,18 @@ services:
     depends_on:
       - postgres
       - minio
+      - redis
     networks:
       - iceberg_net
     volumes:
       - ./spark_app:/home/iceberg/app
       - ./notebooks:/home/iceberg/notebooks
-      - shared_trigger:/shared
     environment:
       - AWS_ACCESS_KEY_ID=admin
       - AWS_SECRET_ACCESS_KEY=password
       - AWS_REGION=us-east-1
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
     ports:
       - "8888:8888"
       - "8080:8080"
@@ -93,19 +95,45 @@ services:
     depends_on:
       - minio
       - spark-iceberg
+      - redis
     environment:
       MINIO_ENDPOINT: http://minio:9000
       MINIO_ACCESS_KEY: admin
       MINIO_SECRET_KEY: password
       MINIO_BUCKET: uploads
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
     volumes:
       - ./fastapi_app:/app
-      - shared_trigger:/shared
+
+  redis:
+    image: redis:7
+    container_name: redis
+    ports:
+      - "6379:6379"
+    networks:
+      - iceberg_net
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+  rq-dashboard:
+    image: eoranged/rq-dashboard
+    container_name: rq-dashboard
+    environment:
+      RQ_DASHBOARD_REDIS_URL: redis://redis:6379
+    ports:
+      - "9181:9181"
+    networks:
+      - iceberg_net
+    depends_on:
+      - redis
+    restart: unless-stopped
 
 volumes:
   pg_data:
   minio_data:
-  shared_trigger:
+  redis_data:
 
 networks:
   iceberg_net:
