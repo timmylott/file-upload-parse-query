@@ -4,10 +4,10 @@
     <title>Upload File</title>
 </head>
 <body>
-    <h2>Upload CSV, Excel, or PDF</h2>
+    <h2>Upload CSV or Parquet file</h2>
 
     {% if response %}
-        <p><strong>Upload Result:</strong></p>
+        <p><strong>Result:</strong></p>
         <pre>{{ response | tojson(indent=2) }}</pre>
         <hr>
     {% endif %}
